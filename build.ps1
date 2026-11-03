@@ -408,7 +408,7 @@ try {
         cacheUniverse = $CacheUniverse
         cachePackageVersion = $cachePackageVersion
         cacheImplementation = $cacheImplementation
-        localPackageBuild = $localPackages
+        localPackages = $localPackages
         expectedHits = $ExpectedHits
         expectedMisses = $ExpectedMisses
         measureMemory = $MeasureMemory.IsPresent
@@ -547,7 +547,7 @@ try {
         if ($null -ne $localPackages -and
             ($pluginAssemblyHash -ne $localPackages.localPluginAssemblySha256 -or
              $helperAssemblyHash -ne $localPackages.sharedCompilationAssemblySha256)) {
-            throw 'The loaded plugin/helper does not match the freshly built local packages.'
+            throw 'The loaded plugin/helper does not match the supplied local packages.'
         }
     }
 
@@ -590,7 +590,6 @@ try {
         cacheImplementation = $cacheImplementation
         pluginAssemblySha256 = $pluginAssemblyHash
         sharedCompilationAssemblySha256 = $helperAssemblyHash
-        localSourceSnapshotCommit = $(if ($null -ne $localPackages) { $localPackages.sourceSnapshotCommit } else { $null })
         registeredCachePlugins = $plugins.Count
         workloadSidecarsVerified = $workloadSidecarsVerified
         pluginObservedWorkload = $observedStrongFingerprintsValidated

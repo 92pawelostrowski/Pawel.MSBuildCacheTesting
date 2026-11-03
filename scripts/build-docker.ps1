@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Local')]
     [ValidateNotNullOrEmpty()]
-    [string] $MSBuildCacheRepository,
+    [string] $MSBuildCachePackageDirectory,
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [ValidateRange(1, 256)]
@@ -35,21 +35,25 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw 'This launcher requires Windows and a local Windows container engine.'
 }
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$usingLocalImplementation = $PSCmdlet.ParameterSetName -eq 'Local'
+$usingLocalPackages = $PSCmdlet.ParameterSetName -eq 'Local'
 if ($CacheMode -eq 'Disabled' -and ($ValidateFingerprints -or $ExpectedHits -ge 0 -or $ExpectedMisses -ge 0)) {
     throw 'Disabled mode cannot validate plugin fingerprints or cache hit/miss counts.'
 }
-if ($usingLocalImplementation) {
-    if (-not [IO.Path]::IsPathRooted($MSBuildCacheRepository)) {
-        $MSBuildCacheRepository = Join-Path $repositoryRoot $MSBuildCacheRepository
+if ($usingLocalPackages) {
+    if (-not [IO.Path]::IsPathRooted($MSBuildCachePackageDirectory)) {
+        $MSBuildCachePackageDirectory = Join-Path $repositoryRoot $MSBuildCachePackageDirectory
     }
-    $MSBuildCacheRepository = [IO.Path]::GetFullPath($MSBuildCacheRepository)
-    if ($MSBuildCacheRepository -notmatch '^[A-Za-z]:[\\/]' -or $MSBuildCacheRepository.Contains(',')) {
-        throw 'MSBuildCacheRepository must be an absolute local Windows drive path without commas.'
+    $MSBuildCachePackageDirectory = [IO.Path]::GetFullPath($MSBuildCachePackageDirectory)
+    if ($MSBuildCachePackageDirectory -notmatch '^[A-Za-z]:[\\/]' -or $MSBuildCachePackageDirectory.Contains(',')) {
+        throw 'MSBuildCachePackageDirectory must be an absolute local Windows drive path without commas.'
     }
-    foreach ($project in @('src\Local\Microsoft.MSBuildCache.Local.csproj', 'src\SharedCompilation\Microsoft.MSBuildCache.SharedCompilation.csproj', 'Directory.Build.props', 'version.json', 'nuget.config')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $MSBuildCacheRepository $project) -PathType Leaf)) {
-            throw "MSBuildCacheRepository is not a supported MSBuildCache source checkout: missing $project in $MSBuildCacheRepository"
+    if (-not (Test-Path -LiteralPath $MSBuildCachePackageDirectory -PathType Container)) {
+        throw "MSBuildCachePackageDirectory does not exist: $MSBuildCachePackageDirectory"
+    }
+    foreach ($id in @('Microsoft.MSBuildCache.Local', 'Microsoft.MSBuildCache.SharedCompilation')) {
+        $packages = @(Get-ChildItem -LiteralPath $MSBuildCachePackageDirectory -Filter "$id.*.nupkg" -File)
+        if ($packages.Count -ne 1) {
+            throw "Expected exactly one $id package in $MSBuildCachePackageDirectory. Use a directory containing one version of each package."
         }
     }
 }
@@ -154,7 +158,7 @@ elseif (-not [IO.Path]::IsPathRooted($ResultsDirectory)) {
     $ResultsDirectory = Join-Path $repositoryRoot $ResultsDirectory
 }
 if ([string]::IsNullOrWhiteSpace($CacheDirectory)) {
-    $cacheFolder = if ($usingLocalImplementation) { 'LocalMSBuildCache\Local' } else { 'LocalMSBuildCache' }
+    $cacheFolder = if ($usingLocalPackages) { 'LocalMSBuildCache\Local' } else { 'LocalMSBuildCache' }
     $CacheDirectory = Join-Path $repositoryRoot $cacheFolder
 }
 elseif (-not [IO.Path]::IsPathRooted($CacheDirectory)) {
@@ -181,8 +185,8 @@ $runArguments = @(
     '--mount', "type=bind,source=$ResultsDirectory,target=C:\results",
     '--mount', "type=bind,source=$CacheDirectory,target=C:\MSBuildCache"
 )
-if ($usingLocalImplementation) {
-    $runArguments += @('--mount', "type=bind,source=$MSBuildCacheRepository,target=C:\cache-source,readonly")
+if ($usingLocalPackages) {
+    $runArguments += @('--mount', "type=bind,source=$MSBuildCachePackageDirectory,target=C:\packages,readonly")
 }
 $runArguments += @(
     $imageName,
@@ -196,7 +200,7 @@ $runArguments += @(
     '-ExpectedMisses', [string]$ExpectedMisses
 )
 if (-not [string]::IsNullOrWhiteSpace($CacheUniverse)) { $runArguments += @('-CacheUniverse', $CacheUniverse) }
-if ($usingLocalImplementation) { $runArguments += @('-MSBuildCacheRepository', 'C:\cache-source') }
+if ($usingLocalPackages) { $runArguments += @('-MSBuildCachePackageDirectory', 'C:\packages') }
 if ($ValidateFingerprints) { $runArguments += '-ValidateFingerprints' }
 
 # Request system wakefulness only while building and running. This does not
@@ -221,9 +225,9 @@ try {
 
     Write-Host 'Running a fresh Windows traversal build; MSBuild memory sampling is always enabled.'
     Write-Host "Cache mode: $CacheMode | Cache universe: $CacheUniverse"
-    if ($usingLocalImplementation) {
-        Write-Host "Local implementation: $MSBuildCacheRepository (read-only source; built inside the container before measurement)"
-        if ([string]::IsNullOrWhiteSpace($CacheUniverse)) { Write-Host 'Cache universe will be derived from the freshly built plugin/helper hashes.' }
+    if ($usingLocalPackages) {
+        Write-Host "Local packages: $MSBuildCachePackageDirectory (read-only)"
+        if ([string]::IsNullOrWhiteSpace($CacheUniverse)) { Write-Host 'Cache universe will be derived from the supplied package hashes.' }
     }
     Write-Host "Persistent host cache: $CacheDirectory"
     Write-Host "Results: $ResultsDirectory"
