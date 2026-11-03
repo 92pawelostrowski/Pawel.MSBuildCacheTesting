@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <MSBuildCacheEnabled Condition="'$(MSBuildCacheEnabled)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</MSBuildCacheEnabled>
     <MSBuildCacheEnabled Condition="'$(MSBuildCacheEnabled)' == ''">false</MSBuildCacheEnabled>
   </PropertyGroup>
 
@@ -17,5 +18,7 @@
 
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
     <PackageReference Include="Microsoft.MSBuildCache.Local" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.MSBuildCache.SharedCompilation" PrivateAssets="all"
+                      Condition="'$(MSBuildCacheEnabled)' == 'true'" />
   </ItemGroup>
 </Project>

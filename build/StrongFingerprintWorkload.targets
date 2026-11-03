@@ -1,0 +1,43 @@
+<Project>
+  <!-- Keep all observed paths inside the target so evaluation-time prediction does not absorb them. -->
+  <Target Name="CaptureStrongFingerprintWorkload"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <PropertyGroup>
+      <_StrongFingerprintInputRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../workload-inputs'))</_StrongFingerprintInputRoot>
+      <_StrongFingerprintSettingsPath>$(_StrongFingerprintInputRoot)/settings.txt</_StrongFingerprintSettingsPath>
+      <_StrongFingerprintMembersDirectory>$(_StrongFingerprintInputRoot)/members</_StrongFingerprintMembersDirectory>
+      <_StrongFingerprintMarkerPath>$(_StrongFingerprintInputRoot)/markers/$(MSBuildProjectName).marker</_StrongFingerprintMarkerPath>
+      <_StrongFingerprintMarkerExists>false</_StrongFingerprintMarkerExists>
+      <_StrongFingerprintMarkerExists Condition="Exists('$(_StrongFingerprintMarkerPath)')">true</_StrongFingerprintMarkerExists>
+      <_StrongFingerprintSidecarPath>$(IntermediateOutputPath)strong-fingerprint-observations.txt</_StrongFingerprintSidecarPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_StrongFingerprintMembers Include="$(_StrongFingerprintMembersDirectory)/*.member" />
+    </ItemGroup>
+    <ReadLinesFromFile File="$(_StrongFingerprintSettingsPath)">
+      <Output TaskParameter="Lines" ItemName="_StrongFingerprintSettingsLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <_StrongFingerprintMemberCount>@(_StrongFingerprintMembers->Count())</_StrongFingerprintMemberCount>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_StrongFingerprintOutputLines Include="project=$(MSBuildProjectName)" />
+      <_StrongFingerprintOutputLines Include="marker=$(_StrongFingerprintMarkerExists)" />
+      <_StrongFingerprintOutputLines Include="membercount=$(_StrongFingerprintMemberCount)" />
+      <_StrongFingerprintOutputLines Include="@(_StrongFingerprintSettingsLines->'setting=%(Identity)')" />
+      <_StrongFingerprintOutputLines Include="@(_StrongFingerprintMembers->'member=%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_StrongFingerprintSidecarPath)"
+                      Lines="@(_StrongFingerprintOutputLines)"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true"
+                      Encoding="UTF-8" />
+    <ItemGroup>
+      <FileWrites Include="$(_StrongFingerprintSidecarPath)" />
+    </ItemGroup>
+  </Target>
+</Project>

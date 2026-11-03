@@ -3,7 +3,7 @@
 .vscode
 .nuget
 artifacts
+LocalMSBuildCache
 **/bin
 **/obj
-**/__pycache__
 TestResults

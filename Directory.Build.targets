@@ -1,8 +1,12 @@
 <Project>
-  <Target Name="VerifyCacheDisabled"
+  <Target Name="VerifyCacheRegistration"
           BeforeTargets="PrepareForBuild"
-          Condition="'$(MSBuildProjectExtension)' == '.csproj' and '$(MSBuildCacheEnabled)' == 'false'">
-    <Error Condition="'@(ProjectCachePlugin)' != ''"
-           Text="The baseline build must not register a ProjectCachePlugin." />
+          Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <Error Condition="'$(MSBuildCacheEnabled)' == 'false' and '@(ProjectCachePlugin)' != ''"
+           Text="The disabled control build must not register a ProjectCachePlugin." />
+    <Error Condition="'$(MSBuildCacheEnabled)' == 'true' and '@(ProjectCachePlugin->Count())' != '1'"
+           Text="The enabled build must register exactly one ProjectCachePlugin." />
   </Target>
+  <Import Project="$(MSBuildThisFileDirectory)build/StrongFingerprintWorkload.targets"
+          Condition="'$(MSBuildProjectExtension)' == '.csproj'" />
 </Project>

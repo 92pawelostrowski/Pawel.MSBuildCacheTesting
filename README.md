@@ -1,159 +1,91 @@
 # Pawel.MSBuildCacheTesting
 
-A generated, real .NET build graph for functional and memory testing of
-Microsoft.MSBuildCache. The initial baseline references the published plugin but
-keeps caching disabled on every build.
+Build 500 .NET 10 projects in a fresh Windows container and measure restore/build
+time and MSBuild memory usage with the published MSBuildCache plugin enabled.
 
-- 500 C# projects: 499 libraries and one verification application.
-- 20 layers of 25 projects. Each project above the first layer references 10
-  projects in the preceding layer: 4,750 project-to-project references.
-- `dirs.proj` builds every project using Microsoft.Build.Traversal and MSBuild
-  static graph mode. Including the traversal entry point, the graph has 501 nodes.
-- Implicit transitive project references are disabled. The internal graph has
-  5,250 edges: 4,750 declared project references plus 500 traversal references.
-- Generated code consumes every declared dependency. Cached values avoid
-  exponential runtime work when dependencies are shared.
-- The build checks all 500 primary assemblies and runs the verification app.
+Use Windows 11 24H2 or later, or Windows Server 2025, with Docker already
+configured for **local Windows containers**. The image uses Windows Server Core
+2025 and process isolation. You need Docker CLI access and internet access for
+the first image build and package restore. No host .NET SDK, Visual Studio, or
+PowerShell 7 installation is required.
 
-## Pinned baseline
-
-| Component | Version |
-| --- | --- |
-| .NET SDK / target framework | `10.0.403` / `net10.0` |
-| Microsoft.Build.Traversal | `4.1.82` |
-| Microsoft.MSBuildCache.Local | `0.1.340-preview` |
-
-`0.1.340-preview` was the latest published Local package when this baseline was
-prepared on 3 November 2026. Its version is pinned in `Directory.Packages.props`
-so a future package release does not silently change the baseline.
-
-`MSBuildCacheEnabled=false` prevents registration of `ProjectCachePlugin`. The
-build verifies this for all projects before compilation and records the evaluated
-configuration in `plugin-state.json`. The SharedCompilation helper package is not
-included in this disabled baseline.
-
-The published Local plugin has Windows native dependencies. Successful Linux
-baseline builds demonstrate that the **disabled** package can be referenced;
-they do not demonstrate that enabled plugin caching works on Linux. Enabling and
-testing the plugin is a later step.
-
-## Docker build: Windows or Linux host
-
-Only Docker with Linux containers is required. The pinned SDK and PowerShell are
-provided by the image; the host does not need the .NET SDK. Windows uses the
-PowerShell launcher; Linux can use the Bash launcher without host PowerShell.
-
-Windows, from PowerShell 7:
+From the repository directory, run this in Windows PowerShell:
 
 ```powershell
-pwsh -NoProfile -File ./scripts/build-docker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-docker.ps1
 ```
 
-Linux:
+The script builds the image, runs the workload, prints build time and memory
+readings every two seconds, and verifies the resulting application. The first
+image build downloads and installs the SDK and Visual Studio Build Tools and
+can take some time; later invocations reuse those image layers. Image setup and
+output verification are excluded from the measured restore/build time and memory.
+The script temporarily keeps Windows awake during image setup and execution,
+then releases that request. Display and power-plan settings are preserved.
 
-```bash
-./build-docker.sh
-```
+Each invocation starts a fresh container with fresh build outputs. The ignored
+host folder `LocalMSBuildCache\` is mounted at `C:\MSBuildCache` and survives
+between runs. Run the same command again to measure a build using that cache.
+Actual plugin hit and miss counts are printed. Run builds sequentially because
+the local cache requires exclusive access.
+Cache output placement is synchronous so directory observations see complete
+dependency outputs before cache lookup continues.
 
-Both default to Release, two MSBuild workers, and a memory sample every two
-seconds. To change the worker limit or interval:
-
-```powershell
-pwsh -NoProfile -File ./scripts/build-docker.ps1 -MaxCpuCount 4 -SampleSeconds 3
-```
-
-```bash
-./build-docker.sh --max-cpu-count 4 --sample-seconds 3
-```
-
-The Docker image contains a source snapshot. Compilation runs at container
-startup, not in a cached Docker build layer. Every invocation performs a fresh
-restore and build. Host `bin`, `obj`, and `artifacts` directories are excluded
-from the image, keeping Windows and Linux intermediate files separate.
-
-Each invocation saves results under `artifacts/docker/<run-id>/`. Set
-`-ResultsDirectory <path>` in PowerShell or `--results-directory <path>` in Bash
-to choose an explicit location. Only the result directory is mounted into the
-container. On a Linux host, the container runs with the calling user's UID/GID.
-
-### Memory reporting is always enabled
-
-The container prints readings throughout restore, compilation, and verification:
-
-```text
-[memory 00:12] working set    824.5 MiB | container total   1024.0 MiB | process RSS    910.2 MiB | peak working set    824.5 MiB
-```
-
-This is an example of the output format, not a benchmark result. The measurements
-cover the whole container, including MSBuild workers and compilers.
-
-- **Working set:** cgroup memory usage minus inactive file cache, similar to the
-  working-set value reported by container monitoring tools.
-- **Container total:** memory usage including file cache.
-- **Process RSS:** summed resident memory of container processes; shared pages
-  can be counted more than once.
-- **Peak working set:** the largest working-set sample. Short spikes between
-  samples can be missed. The summary also records the kernel's container-total
-  peak where the cgroup interface provides it.
-
-Memory sampling cannot be disabled through the launchers. Build failures still
-produce a final memory sample and summary, and return a failing exit code.
-These metrics describe total build memory, not the plugin's retained managed
-heap specifically. Docker image download/build time is outside the measured run.
-
-Each results directory contains:
+Results are saved under `artifacts\docker\<run-id>\`:
 
 | File | Contents |
 | --- | --- |
-| `console.log` | Live build output and readable memory samples |
-| `memory.csv` | Timestamps, elapsed seconds, and memory readings in bytes |
-| `memory-summary.json` | Exit code, sampling interval, and memory peaks |
-| `build.binlog` | MSBuild binary log |
-| `build.log` | Restore/build console output |
-| `build-summary.json` | Verified project count, graph size, SDK, and plugin state |
-| `plugin-state.json` | Evaluated plugin property and package/item configuration |
-| `verification.log` | Verification application's result |
+| `build-summary.json` | `restoreBuildSeconds`, cache hits/misses, and verification result |
+| `memory.csv` | Timestamped memory samples from the actual MSBuild process and descendants |
+| `memory-summary.json` | Sampled peak private bytes and summed working sets |
+| `build.log`, `build.binlog`, `console.log` | Build diagnostics and console output |
 
-## Native build
+Memory includes MSBuild workers and compilers. Private bytes measure private
+allocated memory; summed working sets may count shared pages more than once.
+Two-second samples can miss short spikes. These metrics do not isolate the
+plugin's retained managed heap.
 
-Install the exact SDK from `global.json` and PowerShell 7. Run on Windows or Linux:
+The launcher prefers the `windows-containers` Docker context when it exists;
+otherwise it uses the current context. It never changes the active context.
+Use `-DockerContext <name>` to select another local Windows engine explicitly.
 
-```powershell
-pwsh -NoProfile -File ./build.ps1
-```
+## Options and troubleshooting
 
-The Linux `./build.sh` wrapper calls the same PowerShell script. Native builds
-write logs to `artifacts/logs/native/`; the periodic memory sampler is part of the
-Docker build. Use `-Configuration Debug` or `-MaxCpuCount 4` with either launcher
-when required.
+Append `-CacheMode Disabled` for a control build, or `-MaxCpuCount <number>` to
+change parallelism from the default of two workers. `-CacheDirectory` and
+`-ResultsDirectory` accept alternative local paths. Use a separate cache folder
+when comparing plugin versions.
 
-The core build command is:
+Builds and runs use the project-owned NAT network `pawel-msbuildcachetesting`,
+with DNS inferred from active host IPv4 adapters. If container downloads cannot
+resolve names, supply reachable IPv4 resolvers with `-DnsServers`. Use
+`-NetworkName` if the default name conflicts with an existing network. Only an
+idle network owned by this repository is refreshed when its DNS settings change.
 
-```text
-dotnet msbuild dirs.proj -restore -graphBuild -maxCpuCount:2 -nodeReuse:false -property:Configuration=Release -property:MSBuildCacheEnabled=false
-```
+## Workload and optional checks
 
-The build script also checks generated-file consistency, validates all 500
-assemblies, checks the evaluated plugin configuration, and executes Project0499.
-The generated application's expected value is `395719275`.
+The graph has 20 layers of 25 projects, 4,750 direct project references, and
+499 libraries plus one verification application. Implicit transitive references
+are disabled. Generated code consumes every declared reference; the application
+must produce `395719275`.
 
-## Generated workload
+The SDK is pinned to `10.0.403`, Traversal to `4.1.82`, and
+`Microsoft.MSBuildCache.Local` and `Microsoft.MSBuildCache.SharedCompilation` to
+`0.1.340-preview`. The image supplies Git, PowerShell 7, and x64 Visual Studio
+Build Tools because the plugin requires full-framework MSBuild and file-access
+reporting.
 
-All projects and sources are checked in. Generating them is not required to build.
-`workload.json` records every project, dependency, expected value, and output path.
+During target execution, each project reads shared settings, enumerates 1,000
+shared directory members, and probes a marker unique to that project. These
+inputs live in `workload-inputs\`; deliberate edits are preserved. Cached
+observation sidecars are checked against current inputs after each build.
+Append `-ValidateFingerprints` to additionally inspect every project's actual
+strong-fingerprint dump after measurement.
 
-```powershell
-# Check that the committed workload matches the generator; changes nothing.
-pwsh -NoProfile -File ./scripts/generate.ps1 -VerifyOnly
+For an optional cold/warm/replay campaign, run
+`pwsh -NoProfile -File .\scripts\test-cache.ps1`. This helper requires host
+PowerShell 7 and saves results under `artifacts\tests\<run-id>\`.
 
-# Regenerate after an intentional generator change.
-pwsh -NoProfile -File ./scripts/generate.ps1
-```
-
-The generator is deterministic and uses no random seeds, timestamps, or external
-packages. It refuses unexpected files in the generated source tree rather than
-deleting them. Ordinary build outputs are centralized under `artifacts/`.
-
-This first baseline exercises a substantial compilation graph. Strong-fingerprint
-observation workloads, cache-hit/miss scenarios, and comparisons between plugin
-versions can be added on top of it later.
+Generated projects and sources are checked in. Maintainers can check them with
+`pwsh -NoProfile -File .\scripts\generate.ps1 -VerifyOnly`, or regenerate them
+by omitting `-VerifyOnly`.

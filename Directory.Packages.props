@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.MSBuildCache.Local" Version="0.1.340-preview" />
+    <PackageVersion Include="Microsoft.MSBuildCache.SharedCompilation" Version="0.1.340-preview" />
   </ItemGroup>
 </Project>

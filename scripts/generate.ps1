@@ -155,6 +155,17 @@ $manifest = [ordered]@{
         saltMultiplier = $saltMultiplier
         rule = 'Start at ((id + 1) * seedMultiplier) % modulus. For each dependency in order, value = (value * multiplier + dependencyValue * (index + 1) + (id + 1) * saltMultiplier) % modulus.'
     }
+    strongFingerprintWorkload = [ordered]@{
+        enabled = $true
+        directoryMemberCount = 1000
+        initializationMarkerPath = 'workload-inputs/.initialized'
+        settingsPath = 'workload-inputs/settings.txt'
+        settingsLines = @('workload-version=1', 'value=baseline-v1')
+        membersDirectory = 'workload-inputs/members'
+        markerDirectory = 'workload-inputs/markers'
+        markerPath = 'workload-inputs/markers/{projectName}.marker'
+        sidecarPath = 'artifacts/obj/{projectName}/{configuration}/net10.0/strong-fingerprint-observations.txt'
+    }
     projects = @($projects.ToArray())
     verification = [ordered]@{
         projectId = $verificationProject.id
