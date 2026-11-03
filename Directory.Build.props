@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <MSBuildCacheEnabled Condition="'$(MSBuildCacheEnabled)' == ''">false</MSBuildCacheEnabled>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Deterministic>true</Deterministic>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+    <IsPackable>false</IsPackable>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts/bin/$(MSBuildProjectName)/</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildThisFileDirectory)artifacts/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="Microsoft.MSBuildCache.Local" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

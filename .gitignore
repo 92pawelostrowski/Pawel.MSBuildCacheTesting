@@ -1,0 +1,11 @@
+artifacts/
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.nuget/packages/
+TestResults/
+*.user
+*.suo
+.DS_Store
+__pycache__/

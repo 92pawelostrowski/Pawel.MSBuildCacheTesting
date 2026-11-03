@@ -1,0 +1,9 @@
+.git
+.vs
+.vscode
+.nuget
+artifacts
+**/bin
+**/obj
+**/__pycache__
+TestResults

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Project0033/Project0033.csproj" />
+    <ProjectReference Include="../Project0034/Project0034.csproj" />
+    <ProjectReference Include="../Project0035/Project0035.csproj" />
+    <ProjectReference Include="../Project0036/Project0036.csproj" />
+    <ProjectReference Include="../Project0037/Project0037.csproj" />
+    <ProjectReference Include="../Project0038/Project0038.csproj" />
+    <ProjectReference Include="../Project0039/Project0039.csproj" />
+    <ProjectReference Include="../Project0040/Project0040.csproj" />
+    <ProjectReference Include="../Project0041/Project0041.csproj" />
+    <ProjectReference Include="../Project0042/Project0042.csproj" />
+  </ItemGroup>
+</Project>

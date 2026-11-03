@@ -1,0 +1,8 @@
+<Project>
+  <Target Name="VerifyCacheDisabled"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(MSBuildProjectExtension)' == '.csproj' and '$(MSBuildCacheEnabled)' == 'false'">
+    <Error Condition="'@(ProjectCachePlugin)' != ''"
+           Text="The baseline build must not register a ProjectCachePlugin." />
+  </Target>
+</Project>

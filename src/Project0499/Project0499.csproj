@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Project0474/Project0474.csproj" />
+    <ProjectReference Include="../Project0450/Project0450.csproj" />
+    <ProjectReference Include="../Project0451/Project0451.csproj" />
+    <ProjectReference Include="../Project0452/Project0452.csproj" />
+    <ProjectReference Include="../Project0453/Project0453.csproj" />
+    <ProjectReference Include="../Project0454/Project0454.csproj" />
+    <ProjectReference Include="../Project0455/Project0455.csproj" />
+    <ProjectReference Include="../Project0456/Project0456.csproj" />
+    <ProjectReference Include="../Project0457/Project0457.csproj" />
+    <ProjectReference Include="../Project0458/Project0458.csproj" />
+  </ItemGroup>
+</Project>
