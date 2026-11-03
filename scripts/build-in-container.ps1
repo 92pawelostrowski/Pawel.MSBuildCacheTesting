@@ -9,8 +9,8 @@ param(
     [int] $SampleSeconds = 2,
     [string] $ResultsDirectory = 'C:\results',
     [string] $CacheDirectory = 'C:\MSBuildCache',
-    [ValidateNotNullOrEmpty()]
-    [string] $CacheUniverse = 'published-0.1.340-preview-v1',
+    [string] $CacheUniverse = '',
+    [string] $MSBuildCacheRepository,
     [ValidateSet('Enabled', 'Disabled')]
     [string] $CacheMode = 'Enabled',
     [switch] $ValidateFingerprints,
@@ -23,6 +23,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'This container entrypoint requires Windows.' }
+
+# Local packages are built before measurement, from a disposable copy of the
+# read-only source mount. The host checkout and published packages stay intact.
+$localPackageManifest = ''
+if ($MSBuildCacheRepository) {
+    if ($CacheMode -ne 'Enabled') { throw 'A local implementation requires caching to be enabled.' }
+    $packageDirectory = Join-Path $ResultsDirectory 'local-packages'
+    $localPackageManifest = & (Join-Path $PSScriptRoot 'build-local-packages.ps1') -RepositoryPath $MSBuildCacheRepository -OutputDirectory $packageDirectory
+    $localPackages = Get-Content -LiteralPath $localPackageManifest -Raw | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace($CacheUniverse)) { $CacheUniverse = $localPackages.cacheUniverse }
+}
+elseif ([string]::IsNullOrWhiteSpace($CacheUniverse)) {
+    $CacheUniverse = 'published-0.1.340-preview-v1'
+}
 
 # build.ps1 measures only its actual MSBuild invocation. Preparation and output
 # verification run outside the measured process tree.
@@ -39,5 +53,6 @@ $buildParameters = @{
     MeasureMemory = $true
     SampleSeconds = $SampleSeconds
     ValidateFingerprints = $ValidateFingerprints
+    LocalPackageManifest = $localPackageManifest
 }
 & (Join-Path $PSScriptRoot '..\build.ps1') @buildParameters

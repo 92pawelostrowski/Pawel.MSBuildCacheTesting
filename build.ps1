@@ -16,6 +16,8 @@ param(
 
     [string] $MSBuildPath = '',
 
+    [string] $LocalPackageManifest = '',
+
     [ValidateSet('Enabled', 'Disabled')]
     [string] $CacheMode = 'Enabled',
 
@@ -47,7 +49,21 @@ $cacheEnabledText = $cacheEnabled.ToString().ToLowerInvariant()
 $pathComparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
 $expectedRuntime = if ($IsWindows) { 'Full' } else { 'Core' }
 $msbuildPrefixArguments = @()
-$publishedVersion = '0.1.340-preview'
+$cachePackageVersion = '0.1.340-preview'
+$cacheImplementation = if ($cacheEnabled) { 'Published' } else { 'Disabled' }
+$localPackages = $null
+if (-not [string]::IsNullOrWhiteSpace($LocalPackageManifest)) {
+    if (-not $cacheEnabled) { throw 'Local packages require caching to be enabled.' }
+    $LocalPackageManifest = [IO.Path]::GetFullPath($LocalPackageManifest)
+    $localPackages = Get-Content -LiteralPath $LocalPackageManifest -Raw | ConvertFrom-Json
+    if ($localPackages.schemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace($localPackages.packageVersion) -or
+        $localPackages.localPluginAssemblySha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
+        $localPackages.sharedCompilationAssemblySha256 -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw 'The local package manifest is invalid.'
+    }
+    $cachePackageVersion = $localPackages.packageVersion
+    $cacheImplementation = 'Local'
+}
 $summaryPath = $null
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -390,7 +406,9 @@ try {
         cacheMode = $CacheMode
         cacheDirectory = $CacheDirectory
         cacheUniverse = $CacheUniverse
-        cachePackageVersion = $publishedVersion
+        cachePackageVersion = $cachePackageVersion
+        cacheImplementation = $cacheImplementation
+        localPackageBuild = $localPackages
         expectedHits = $ExpectedHits
         expectedMisses = $ExpectedMisses
         measureMemory = $MeasureMemory.IsPresent
@@ -403,6 +421,7 @@ try {
 
     Write-Host "Building 500 projects / 4,750 project references with fresh outputs."
     Write-Host "SDK: $sdkVersion | MSBuild: $msbuildVersion | Workers: $MaxCpuCount | Cache: $CacheMode"
+    Write-Host "Implementation: $cacheImplementation | Package version: $cachePackageVersion"
     Write-Host "MSBuild: $MSBuildPath"
     Write-Host "Cache directory: $CacheDirectory | Universe: $CacheUniverse"
     Write-Host "Logs: $LogDirectory"
@@ -416,6 +435,14 @@ try {
         "-property:MSBuildCacheCacheUniverse=$(ConvertTo-MSBuildPropertyValue $CacheUniverse)",
         "-property:MSBuildCacheLogDirectory=$(ConvertTo-MSBuildPropertyValue $pluginLogDirectory)"
     )
+    if ($null -ne $localPackages) {
+        $restoreConfig = Join-Path (Split-Path -Parent $LocalPackageManifest) 'NuGet.config'
+        if (-not (Test-Path -LiteralPath $restoreConfig -PathType Leaf)) { throw "Missing local restore configuration: $restoreConfig" }
+        $settingsArguments += @(
+            "-property:MSBuildCachePackageVersion=$cachePackageVersion",
+            "-property:RestoreConfigFile=$(ConvertTo-MSBuildPropertyValue $restoreConfig)"
+        )
+    }
     $arguments = @(
         'dirs.proj',
         '-restore',
@@ -500,21 +527,28 @@ try {
     }
     $pluginReferences = @($evaluation.Items.PackageReference | Where-Object Identity -eq 'Microsoft.MSBuildCache.Local')
     $pluginVersions = @($evaluation.Items.PackageVersion | Where-Object Identity -eq 'Microsoft.MSBuildCache.Local')
-    if ($pluginReferences.Count -ne 1 -or $pluginVersions.Count -ne 1 -or $pluginVersions[0].Version -ne $publishedVersion) {
-        throw "Expected the pinned published Microsoft.MSBuildCache.Local $publishedVersion."
+    if ($pluginReferences.Count -ne 1 -or $pluginVersions.Count -ne 1 -or $pluginVersions[0].Version -ne $cachePackageVersion) {
+        throw "Expected Microsoft.MSBuildCache.Local $cachePackageVersion ($cacheImplementation)."
     }
     $helperReferences = @($evaluation.Items.PackageReference | Where-Object Identity -eq 'Microsoft.MSBuildCache.SharedCompilation')
     $helperVersions = @($evaluation.Items.PackageVersion | Where-Object Identity -eq 'Microsoft.MSBuildCache.SharedCompilation')
-    if ($helperReferences.Count -ne $expectedPluginCount -or $helperVersions.Count -ne 1 -or $helperVersions[0].Version -ne $publishedVersion) {
-        throw "Expected SharedCompilation $publishedVersion to be referenced exactly when caching is enabled."
+    if ($helperReferences.Count -ne $expectedPluginCount -or $helperVersions.Count -ne 1 -or $helperVersions[0].Version -ne $cachePackageVersion) {
+        throw "Expected SharedCompilation $cachePackageVersion to be referenced exactly when caching is enabled."
     }
     $pluginAssemblyHash = $null
+    $helperAssemblyHash = $null
     if ($cacheEnabled) {
         if (-not (Test-Path -LiteralPath $plugins[0].Identity -PathType Leaf) -or
             -not (Test-Path -LiteralPath $evaluation.Properties.MSBuildCacheSharedCompilationAssembly -PathType Leaf)) {
             throw 'The actual Local plugin or SharedCompilation helper assembly is missing.'
         }
         $pluginAssemblyHash = (Get-FileHash -LiteralPath $plugins[0].Identity -Algorithm SHA256).Hash
+        $helperAssemblyHash = (Get-FileHash -LiteralPath $evaluation.Properties.MSBuildCacheSharedCompilationAssembly -Algorithm SHA256).Hash
+        if ($null -ne $localPackages -and
+            ($pluginAssemblyHash -ne $localPackages.localPluginAssemblySha256 -or
+             $helperAssemblyHash -ne $localPackages.sharedCompilationAssemblySha256)) {
+            throw 'The loaded plugin/helper does not match the freshly built local packages.'
+        }
     }
 
     $missing = @(
@@ -552,8 +586,11 @@ try {
         implicitTransitiveProjectReferences = $false
         verifiedPrimaryAssemblies = 500
         msbuildCacheEnabled = $cacheEnabled
-        msbuildCachePackageVersion = $publishedVersion
+        msbuildCachePackageVersion = $cachePackageVersion
+        cacheImplementation = $cacheImplementation
         pluginAssemblySha256 = $pluginAssemblyHash
+        sharedCompilationAssemblySha256 = $helperAssemblyHash
+        localSourceSnapshotCommit = $(if ($null -ne $localPackages) { $localPackages.sourceSnapshotCommit } else { $null })
         registeredCachePlugins = $plugins.Count
         workloadSidecarsVerified = $workloadSidecarsVerified
         pluginObservedWorkload = $observedStrongFingerprintsValidated
