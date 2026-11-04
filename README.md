@@ -36,25 +36,32 @@ Build the packages yourself before running the container. Package authors need
 the .NET 10 SDK and .NET Framework 4.7.2 targeting pack, available through Visual
 Studio or Build Tools. These tools are not required just to run the launcher.
 
-In your MSBuildCache checkout's `version.json`, give `version` a unique
-prerelease suffix for each implementation or scenario, for example
-`"version": "0.1-memory-fix-a"`. Keep the other settings and use the same file
-for both builds. Nerdbank.GitVersioning determines the package version; do not
-override it with `-p:PackageVersion`.
+Keep `version.json` unchanged from its committed contents. Choose a distinct
+`OverrideBuildNumberOffset` for each implementation or scenario, for example
+`1000` for one and `2000` for another, and use the same offset for both packages.
+Nerdbank.GitVersioning adds the offset to the Git version height: the package
+version still includes the configured prerelease label and, on feature branches,
+the Git SHA. This provides distinct scenario versions without changing source
+files; it does not force an arbitrary full version string. Do not override
+`PackageVersion`, which Nerdbank.GitVersioning replaces.
+
+An uncommitted change to `version.json` can reset the version height to zero,
+which prevents the offset from applying. If you intentionally change that file,
+commit the change before building; pushing that commit is unnecessary.
 
 From `R:\git\MSBuildCache`, run these commands. Choose a fresh output directory
 for each scenario so old package versions cannot be selected accidentally.
 The projects automatically create packages during the build.
 
 ```powershell
-dotnet build .\src\Local\Microsoft.MSBuildCache.Local.csproj -c Release -p:TargetFrameworks=net472 -p:SignType=Test -p:PackageOutputPath=R:\MSBuildCachePackages\memory-fix-a
-dotnet build .\src\SharedCompilation\Microsoft.MSBuildCache.SharedCompilation.csproj -c Release -p:TargetFrameworks=net472 -p:SignType=Test -p:PackageOutputPath=R:\MSBuildCachePackages\memory-fix-a
+dotnet build .\src\Local\Microsoft.MSBuildCache.Local.csproj -c Release -p:TargetFrameworks=net472 -p:SignType=Test -p:OverrideBuildNumberOffset=1000 -p:PackageOutputPath=R:\MSBuildCachePackages\scenario-1000
+dotnet build .\src\SharedCompilation\Microsoft.MSBuildCache.SharedCompilation.csproj -c Release -p:TargetFrameworks=net472 -p:SignType=Test -p:OverrideBuildNumberOffset=1000 -p:PackageOutputPath=R:\MSBuildCachePackages\scenario-1000
 ```
 
 Then, from this testing repository, run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-docker.ps1 -MSBuildCachePackageDirectory 'R:\MSBuildCachePackages\memory-fix-a'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-docker.ps1 -MSBuildCachePackageDirectory 'R:\MSBuildCachePackages\scenario-1000'
 ```
 
 The directory must contain exactly one `Microsoft.MSBuildCache.Local` package
