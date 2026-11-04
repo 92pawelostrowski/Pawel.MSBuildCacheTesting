@@ -15,7 +15,7 @@ param(
     [string] $CacheUniverse = '',
     [string] $MSBuildPath = '',
     [string] $DockerContext = 'windows-containers',
-    [string] $NetworkName = 'pawel-msbuildcachetesting',
+    [string] $NetworkName = '',
     [string[]] $DnsServers
 )
 
@@ -137,7 +137,7 @@ try {
         if ($Backend -eq 'Docker') {
             $parameters.ResultsDirectory = $phaseDirectory
             $parameters.DockerContext = $DockerContext
-            $parameters.NetworkName = $NetworkName
+            if (-not [string]::IsNullOrWhiteSpace($NetworkName)) { $parameters.NetworkName = $NetworkName }
             if ($DnsServers -and $DnsServers.Count -gt 0) { $parameters.DnsServers = $DnsServers }
             $parameters.SampleSeconds = 2
             & (Join-Path $PSScriptRoot 'build-docker.ps1') @parameters

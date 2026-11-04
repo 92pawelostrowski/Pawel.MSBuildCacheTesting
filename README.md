@@ -131,11 +131,16 @@ when comparing plugin versions.
 `-Configuration Debug` changes the workload configuration; supplied plugin
 packages are used as built.
 
-Builds and runs use the project-owned NAT network `pawel-msbuildcachetesting`,
-with DNS inferred from active host IPv4 adapters. If container downloads cannot
-resolve names, supply reachable IPv4 resolvers with `-DnsServers`. Use
-`-NetworkName` if the default name conflicts with an existing network. Only an
-idle network owned by this repository is refreshed when its DNS settings change.
+Builds and runs use Docker's configured default networking and DNS. The launcher
+does not inspect host network adapters or require host DNS discovery.
+Use `-NetworkName <existing-network>` to select an existing Docker network.
+
+If Docker itself has DNS problems, optionally pass `-DnsServers <reachable-IPv4-resolver>`.
+Only this explicit override creates or reuses the project-owned NAT network
+`pawel-msbuildcachetesting` for both image builds and workload runs. You can also
+supply `-NetworkName` to choose another name for that managed network. An existing
+network must be owned by this repository before its DNS settings can be changed;
+only idle owned networks are refreshed.
 
 ## Workload and optional checks
 

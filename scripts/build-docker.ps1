@@ -14,8 +14,7 @@ param(
     [string] $CacheDirectory,
     [ValidateNotNullOrEmpty()]
     [string] $DockerContext = 'windows-containers',
-    [ValidateNotNullOrEmpty()]
-    [string] $NetworkName = 'pawel-msbuildcachetesting',
+    [string] $NetworkName = '',
     [string[]] $DnsServers,
     [string] $CacheUniverse = '',
     [Parameter(ParameterSetName = 'Published')]
@@ -121,33 +120,31 @@ function Initialize-ProjectNetwork([string] $Name, [string[]] $Servers) {
     if ($LASTEXITCODE -ne 0) { throw "Could not create Docker network '$Name'." }
 }
 
-if (-not $DnsServers -or $DnsServers.Count -eq 0) {
-    try {
-        $DnsServers = @(
-            Get-NetIPConfiguration -ErrorAction Stop |
-                Where-Object { $null -ne $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
-                Sort-Object InterfaceIndex |
-                ForEach-Object { Get-DnsClientServerAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop } |
-                ForEach-Object { $_.ServerAddresses } |
-                Where-Object { -not [Net.IPAddress]::IsLoopback([Net.IPAddress]::Parse($_)) } |
-                Select-Object -Unique
-        )
+# Docker's configured networking is the default. Create a dedicated network
+# only when the caller explicitly requests a DNS override.
+if ($DnsServers -and $DnsServers.Count -gt 0) {
+    $validatedServers = [Collections.Generic.List[string]]::new()
+    foreach ($server in $DnsServers) {
+        $address = $null
+        if (-not [Net.IPAddress]::TryParse($server, [ref]$address) -or
+            $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
+            [Net.IPAddress]::IsLoopback($address) -or $address.Equals([Net.IPAddress]::Any)) {
+            throw "DNS servers must be reachable, non-loopback IPv4 literals: '$server'"
+        }
+        if (-not $validatedServers.Contains($address.ToString())) { $validatedServers.Add($address.ToString()) }
     }
-    catch { throw "Could not infer active IPv4 DNS servers. Supply -DnsServers explicitly. $($_.Exception.Message)" }
+    if ([string]::IsNullOrWhiteSpace($NetworkName)) { $NetworkName = 'pawel-msbuildcachetesting' }
+    Initialize-ProjectNetwork $NetworkName $validatedServers.ToArray()
+    Write-Host "DNS override: $($validatedServers -join ', ')"
 }
-$validatedServers = [Collections.Generic.List[string]]::new()
-foreach ($server in $DnsServers) {
-    $address = $null
-    if (-not [Net.IPAddress]::TryParse($server, [ref]$address) -or
-        $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
-        [Net.IPAddress]::IsLoopback($address) -or $address.Equals([Net.IPAddress]::Any)) {
-        throw "DNS servers must be reachable, non-loopback IPv4 literals: '$server'"
-    }
-    if (-not $validatedServers.Contains($address.ToString())) { $validatedServers.Add($address.ToString()) }
+$networkArguments = @()
+if (-not [string]::IsNullOrWhiteSpace($NetworkName)) {
+    $networkArguments = @('--network', $NetworkName)
+    Write-Host "Docker network: $NetworkName"
 }
-if ($validatedServers.Count -eq 0) { throw 'No active IPv4 DNS servers were found. Supply -DnsServers explicitly.' }
-Initialize-ProjectNetwork $NetworkName $validatedServers.ToArray()
-Write-Host "Docker network: $NetworkName | DNS: $($validatedServers -join ', ')"
+else {
+    Write-Host 'Docker network: engine default (using Docker DNS configuration)'
+}
 
 $imageName = 'pawel-msbuildcachetesting:windows-local'
 if ([string]::IsNullOrWhiteSpace($ResultsDirectory)) {
@@ -181,7 +178,8 @@ New-Item -ItemType Directory -Path $CacheDirectory -Force | Out-Null
 
 $containerName = 'msbuildcache-test-' + [Guid]::NewGuid().ToString('N')
 $runArguments = @(
-    'run', '--name', $containerName, '--isolation', 'process', '--network', $NetworkName,
+    'run', '--name', $containerName, '--isolation', 'process'
+) + $networkArguments + @(
     '--mount', "type=bind,source=$ResultsDirectory,target=C:\results",
     '--mount', "type=bind,source=$CacheDirectory,target=C:\MSBuildCache"
 )
@@ -220,7 +218,7 @@ if ($previousExecutionState -eq 0) { throw 'Could not request that Windows stay 
 $buildExitCode = 1
 try {
     Write-Host "Building Windows Server Core / Visual Studio MSBuild image from $repositoryRoot"
-    & docker @dockerPrefix build --isolation process --memory 4g --network $NetworkName --file (Join-Path $repositoryRoot 'Dockerfile') --tag $imageName $repositoryRoot
+    & docker @dockerPrefix build --isolation process --memory 4g @networkArguments --file (Join-Path $repositoryRoot 'Dockerfile') --tag $imageName $repositoryRoot
     if ($LASTEXITCODE -ne 0) { throw "Docker image build failed (exit $LASTEXITCODE)." }
 
     Write-Host 'Running a fresh Windows traversal build; MSBuild memory sampling is always enabled.'
