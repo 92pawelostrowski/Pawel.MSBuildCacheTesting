@@ -14,8 +14,6 @@ param(
     [string] $CacheDirectory,
     [ValidateNotNullOrEmpty()]
     [string] $DockerContext = 'windows-containers',
-    [string] $NetworkName = '',
-    [string[]] $DnsServers,
     [string] $CacheUniverse = '',
     [Parameter(ParameterSetName = 'Published')]
     [ValidateSet('Enabled', 'Disabled')]
@@ -83,69 +81,6 @@ if ($dockerOs -ne 'windows') {
 }
 Write-Host "Docker context: $DockerContext (local Windows engine)"
 
-function Get-JsonProperty($Object, [string] $Name) {
-    if ($null -eq $Object) { return $null }
-    $property = $Object.PSObject.Properties[$Name]
-    if ($null -ne $property) { return $property.Value }
-    return $null
-}
-
-function Initialize-ProjectNetwork([string] $Name, [string[]] $Servers) {
-    $ownershipLabel = 'com.pawel.msbuildcachetesting.managed'
-    $dnsOption = 'com.docker.network.windowsshim.dnsservers'
-    $gatewayDnsOption = 'com.docker.network.windowsshim.disable_gatewaydns'
-    $serverList = $Servers -join ','
-    $networkNames = @(& docker @dockerPrefix network ls --format '{{.Name}}')
-    if ($LASTEXITCODE -ne 0) { throw 'Could not list Docker networks.' }
-    if ($networkNames -contains $Name) {
-        $networkJson = (& docker @dockerPrefix network inspect $Name | Out-String)
-        if ($LASTEXITCODE -ne 0) { throw "Could not inspect Docker network '$Name'." }
-        $network = @($networkJson | ConvertFrom-Json)[0]
-        if ((Get-JsonProperty $network.Labels $ownershipLabel) -ne 'true') {
-            throw "Docker network '$Name' is not owned by this test repository. Choose another -NetworkName."
-        }
-        if ($network.Driver -ne 'nat') { throw "Owned Docker network '$Name' must use the nat driver." }
-        $existingServers = [string](Get-JsonProperty $network.Options $dnsOption)
-        $gatewayDnsDisabled = (Get-JsonProperty $network.Options $gatewayDnsOption) -eq 'true'
-        if ($existingServers -eq $serverList -and $gatewayDnsDisabled) { return }
-        if ($null -ne $network.Containers -and @($network.Containers.PSObject.Properties).Count -gt 0) {
-            throw "Owned Docker network '$Name' needs updated DNS settings but still has attached containers. Retry after those builds finish."
-        }
-        Write-Host "Refreshing idle project network '$Name' for DNS $serverList"
-        & docker @dockerPrefix network rm $Name | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Could not remove idle owned Docker network '$Name'." }
-    }
-    Write-Host "Creating project NAT network '$Name' with DNS $serverList"
-    & docker @dockerPrefix network create --driver nat --label "${ownershipLabel}=true" --opt "${dnsOption}=$serverList" --opt "${gatewayDnsOption}=true" $Name | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Could not create Docker network '$Name'." }
-}
-
-# Docker's configured networking is the default. Create a dedicated network
-# only when the caller explicitly requests a DNS override.
-if ($DnsServers -and $DnsServers.Count -gt 0) {
-    $validatedServers = [Collections.Generic.List[string]]::new()
-    foreach ($server in $DnsServers) {
-        $address = $null
-        if (-not [Net.IPAddress]::TryParse($server, [ref]$address) -or
-            $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
-            [Net.IPAddress]::IsLoopback($address) -or $address.Equals([Net.IPAddress]::Any)) {
-            throw "DNS servers must be reachable, non-loopback IPv4 literals: '$server'"
-        }
-        if (-not $validatedServers.Contains($address.ToString())) { $validatedServers.Add($address.ToString()) }
-    }
-    if ([string]::IsNullOrWhiteSpace($NetworkName)) { $NetworkName = 'pawel-msbuildcachetesting' }
-    Initialize-ProjectNetwork $NetworkName $validatedServers.ToArray()
-    Write-Host "DNS override: $($validatedServers -join ', ')"
-}
-$networkArguments = @()
-if (-not [string]::IsNullOrWhiteSpace($NetworkName)) {
-    $networkArguments = @('--network', $NetworkName)
-    Write-Host "Docker network: $NetworkName"
-}
-else {
-    Write-Host 'Docker network: engine default (using Docker DNS configuration)'
-}
-
 $imageName = 'pawel-msbuildcachetesting:windows-local'
 if ([string]::IsNullOrWhiteSpace($ResultsDirectory)) {
     $runName = '{0}-{1}' -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'), [Guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -178,8 +113,7 @@ New-Item -ItemType Directory -Path $CacheDirectory -Force | Out-Null
 
 $containerName = 'msbuildcache-test-' + [Guid]::NewGuid().ToString('N')
 $runArguments = @(
-    'run', '--name', $containerName, '--isolation', 'process'
-) + $networkArguments + @(
+    'run', '--name', $containerName, '--isolation', 'process',
     '--mount', "type=bind,source=$ResultsDirectory,target=C:\results",
     '--mount', "type=bind,source=$CacheDirectory,target=C:\MSBuildCache"
 )
@@ -218,7 +152,7 @@ if ($previousExecutionState -eq 0) { throw 'Could not request that Windows stay 
 $buildExitCode = 1
 try {
     Write-Host "Building Windows Server Core / Visual Studio MSBuild image from $repositoryRoot"
-    & docker @dockerPrefix build --isolation process --memory 4g @networkArguments --file (Join-Path $repositoryRoot 'Dockerfile') --tag $imageName $repositoryRoot
+    & docker @dockerPrefix build --isolation process --memory 4g --file (Join-Path $repositoryRoot 'Dockerfile') --tag $imageName $repositoryRoot
     if ($LASTEXITCODE -ne 0) { throw "Docker image build failed (exit $LASTEXITCODE)." }
 
     Write-Host 'Running a fresh Windows traversal build; MSBuild memory sampling is always enabled.'

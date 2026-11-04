@@ -125,22 +125,13 @@ Use `-DockerContext <name>` to select another local Windows engine explicitly.
 ## Options and troubleshooting
 
 Append `-MaxCpuCount <number>` to change parallelism from the default of two
-workers. `-CacheDirectory` and
-`-ResultsDirectory` accept alternative local paths. Use a separate cache folder
-when comparing plugin versions.
+workers. `-CacheDirectory` and `-ResultsDirectory` accept alternative local paths.
+Use a separate cache folder when comparing plugin versions.
 `-Configuration Debug` changes the workload configuration; supplied plugin
 packages are used as built.
 
-Builds and runs use Docker's configured default networking and DNS. The launcher
-does not inspect host network adapters or require host DNS discovery.
-Use `-NetworkName <existing-network>` to select an existing Docker network.
-
-If Docker itself has DNS problems, optionally pass `-DnsServers <reachable-IPv4-resolver>`.
-Only this explicit override creates or reuses the project-owned NAT network
-`pawel-msbuildcachetesting` for both image builds and workload runs. You can also
-supply `-NetworkName` to choose another name for that managed network. An existing
-network must be owned by this repository before its DNS settings can be changed;
-only idle owned networks are refreshed.
+Builds and runs use Docker's default networking. Configure DNS or proxy settings
+in Docker if its containers cannot download tools or packages.
 
 ## Workload and optional checks
 
